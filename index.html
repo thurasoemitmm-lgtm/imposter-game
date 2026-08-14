@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Imposter Online</title>
+    <!-- Add manifest link for PWA -->
+    <link rel="manifest" href="./manifest.json">
+    <meta name="theme-color" content="#0f172a">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a; /* Slate 900 */
+            color: #f8fafc; /* Slate 50 */
+        }
+        
+        /* Custom scrollbar for game logs/lists */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1e293b; 
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #475569; 
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #64748b; 
+        }
+
+        .glass-panel {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #3b82f6, #2563eb);
+            transition: all 0.2s ease;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.5);
+        }
+        
+        .btn-danger {
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            transition: all 0.2s ease;
+        }
+        .btn-danger:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.5);
+        }
+
+        .hidden { display: none !important; }
+        
+        /* Floating animation for logo */
+        @keyframes float {
+            0% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+            100% { transform: translateY(0px); }
+        }
+        .animate-float {
+            animation: float 3s ease-in-out infinite;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center p-4">
+
+    <div id="app" class="w-full max-w-md w-full glass-panel rounded-2xl shadow-2xl p-6 relative overflow-hidden">
+        
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <h1 class="text-4xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-red-500 animate-float inline-block">
+                IMPOSTER
+            </h1>
+            <p class="text-slate-400 text-sm mt-1">Online Deduction Game</p>
+        </div>
+
+        <!-- Screens -->
+        <div id="screen-home" class="flex flex-col gap-4">
+            <div class="glass-panel p-4 rounded-xl border border-slate-700">
+                <input type="text" id="player-name" placeholder="Enter your name" class="w-full bg-slate-800 text-white border border-slate-600 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 transition-colors mb-4" maxlength="15">
+                
+                <div class="grid grid-cols-2 gap-3">
+                    <button id="btn-create-room" class="btn-primary text-white font-semibold py-3 px-4 rounded-lg">Create Room</button>
+                    <button id="btn-show-join" class="bg-slate-700 hover:bg-slate-600 text-white font-semibold py-3 px-4 rounded-lg transition-colors">Join Room</button>
+                </div>
+            </div>
+
+            <div id="join-section" class="hidden glass-panel p-4 rounded-xl border border-slate-700 mt-2">
+                <input type="text" id="room-code-input" placeholder="6-Digit Code" class="w-full bg-slate-800 text-white border border-slate-600 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 transition-colors mb-3 text-center tracking-[0.2em] font-mono text-lg uppercase" maxlength="6">
+                <button id="btn-join-room" class="w-full btn-primary text-white font-semibold py-3 px-4 rounded-lg">Join</button>
+            </div>
+        </div>
+
+        <div id="screen-setup" class="hidden flex flex-col gap-4">
+            <h2 class="text-xl font-semibold border-b border-slate-700 pb-2">Custom Word List Setup</h2>
+            <p class="text-sm text-slate-400">Enter exactly 10 words and hints for the Imposter. <br><span class="text-xs text-yellow-400">Civilians see the Word. Imposter sees the Hint.</span></p>
+            
+            <div id="word-list-container" class="max-h-64 overflow-y-auto pr-2 space-y-3">
+                <!-- Word inputs injected here by JS -->
+            </div>
+
+            <div class="mt-4 flex justify-between items-center">
+                <span class="text-sm text-slate-400">Count: <span id="word-count" class="font-bold text-white">0</span>/10</span>
+                <button id="btn-save-words" class="btn-primary text-white font-semibold py-2 px-6 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed" disabled>Save & Continue</button>
+            </div>
+        </div>
+
+        <div id="screen-lobby" class="hidden flex flex-col gap-4">
+            <div class="text-center p-4 glass-panel rounded-xl border border-slate-700 border-dashed">
+                <p class="text-slate-400 text-sm mb-1">Room Code</p>
+                <div class="flex items-center justify-center gap-2">
+                    <h2 id="display-room-code" class="text-3xl font-mono tracking-[0.2em] text-white">------</h2>
+                    <button id="btn-copy-code" class="text-slate-400 hover:text-white" title="Copy Code">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                    </button>
+                </div>
+            </div>
+
+            <div>
+                <h3 class="text-sm text-slate-400 mb-2 font-semibold">Players (<span id="player-count">0</span>)</h3>
+                <ul id="player-list" class="space-y-2 max-h-48 overflow-y-auto pr-2">
+                    <!-- Players injected here -->
+                </ul>
+            </div>
+
+            <div id="host-controls" class="hidden mt-4 pt-4 border-t border-slate-700">
+                <button id="btn-start-game" class="w-full btn-primary text-white font-semibold py-3 px-4 rounded-lg shadow-lg">Start Game</button>
+                <p class="text-center text-xs text-slate-500 mt-2">Requires minimum 3 players.</p>
+            </div>
+            <div id="guest-waiting" class="mt-4 pt-4 border-t border-slate-700 text-center">
+                <p class="text-sm text-slate-400 animate-pulse">Waiting for host to start...</p>
+            </div>
+        </div>
+
+        <div id="screen-game" class="hidden flex flex-col gap-4">
+            
+            <!-- Role Card -->
+            <div id="role-card" class="glass-panel p-6 rounded-xl border border-slate-600 text-center cursor-pointer relative overflow-hidden group">
+                <div class="absolute inset-0 bg-slate-800 flex items-center justify-center transition-opacity duration-300 z-10" id="role-cover">
+                    <p class="text-lg font-semibold animate-pulse">Tap to reveal secret</p>
+                </div>
+                <div class="z-0">
+                    <p class="text-sm text-slate-400 uppercase tracking-widest mb-2" id="role-title">Your Role</p>
+                    <h3 class="text-2xl font-bold mb-4" id="role-name">Civilian</h3>
+                    <div class="bg-slate-900 rounded-lg p-4 border border-slate-700">
+                        <p class="text-xs text-slate-500 mb-1" id="secret-label">Secret Word</p>
+                        <p class="text-xl font-mono text-blue-400 font-bold" id="secret-word">Loading...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Game Actions -->
+            <div id="game-actions" class="mt-2">
+                <div id="clue-input-section" class="glass-panel p-4 rounded-xl border border-slate-700">
+                    <p class="text-sm mb-2 text-center">Give a one-word clue to prove your innocence.</p>
+                    <input type="text" id="clue-input" placeholder="Your clue..." class="w-full bg-slate-800 text-white border border-slate-600 rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500 mb-2">
+                    <button id="btn-submit-clue" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-2 px-4 rounded-lg transition-colors">Submit Clue</button>
+                </div>
+            </div>
+
+            <!-- Clues Board -->
+            <div>
+                <h3 class="text-sm text-slate-400 mb-2 font-semibold">Submitted Clues</h3>
+                <ul id="clues-list" class="space-y-2 max-h-48 overflow-y-auto pr-2">
+                    <!-- Clues injected here -->
+                </ul>
+            </div>
+
+            <!-- Host transition to vote -->
+            <div id="host-game-controls" class="hidden mt-2">
+                <button id="btn-go-to-vote" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2 px-4 rounded-lg transition-colors shadow-lg">Proceed to Voting</button>
+            </div>
+        </div>
+
+        <div id="screen-vote" class="hidden flex flex-col gap-4">
+            <div class="text-center mb-2">
+                <h2 class="text-xl font-bold text-red-400">Voting Phase</h2>
+                <p class="text-sm text-slate-300">Discuss and select who you think is the Imposter.</p>
+            </div>
+
+            <ul id="vote-list" class="space-y-2 max-h-64 overflow-y-auto pr-2">
+                <!-- Players to vote for injected here -->
+            </ul>
+            
+            <p id="vote-status" class="text-center text-sm text-slate-400 mt-2">Waiting for votes...</p>
+
+            <div id="host-vote-controls" class="hidden mt-4">
+                 <button id="btn-reveal-results" class="w-full btn-danger text-white font-semibold py-3 px-4 rounded-lg shadow-lg">Reveal Results</button>
+            </div>
+        </div>
+
+        <div id="screen-result" class="hidden flex flex-col gap-4">
+            <div class="text-center py-8 glass-panel rounded-xl border border-slate-700">
+                <h2 id="result-title" class="text-3xl font-bold mb-2">Game Over</h2>
+                <p id="result-desc" class="text-lg text-slate-300 mb-6">...</p>
+                
+                <div class="bg-slate-900 rounded-lg p-4 mx-4 mb-6 border border-slate-800">
+                    <p class="text-sm text-slate-500 mb-1">The Imposter was</p>
+                    <p id="result-imposter-name" class="text-xl font-bold text-red-400">...</p>
+                    <p class="text-sm text-slate-500 mt-3 mb-1">The Secret Word was</p>
+                    <p id="result-secret-word" class="text-xl font-mono text-blue-400 font-bold">...</p>
+                </div>
+
+                <button id="btn-back-lobby" class="btn-primary text-white font-semibold py-2 px-8 rounded-lg">Back to Lobby</button>
+            </div>
+        </div>
+
+        <!-- Toast Notification -->
+        <div id="toast" class="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-slate-800 text-white px-4 py-2 rounded-lg shadow-lg border border-slate-700 transition-opacity duration-300 opacity-0 pointer-events-none z-50">
+            Message
+        </div>
+
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot, collection, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // ⚠️ အရေးကြီး: အောက်ပါ firebaseConfig နေရာတွင် သင်၏ Firebase မှရသော Config များကို အစားထိုးထည့်ပါ
+        const firebaseConfig = {
+            apiKey: "AIzaSyBAIZmdX-QyxwlYCs_mTeHU9qMX9kJl8bs",
+            authDomain: "impostergame-3c59c.firebaseapp.com",
+            projectId: "impostergame-3c59c",
+            storageBucket: "impostergame-3c59c.firebasestorage.app",
+            messagingSenderId: "372287042630",
+            appId: "1:372287042630:web:e63c8447c87a2e15a44647",
+            measurementId: "G-M1V0411QFX"
+        };
+
+        let app;
+        try {
+            app = initializeApp(firebaseConfig);
+        } catch (e) {
+            console.error("Firebase init error", e);
+        }
+
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        // Global State Variables
+        let currentUser = null;
+        let currentRoomCode = null;
+        let isHost = false;
+        let roomData = null;
+        let unsubscribe = null;
+
+        const screens = {
+            home: document.getElementById('screen-home'),
+            setup: document.getElementById('screen-setup'),
+            lobby: document.getElementById('screen-lobby'),
+            game: document.getElementById('screen-game'),
+            vote: document.getElementById('screen-vote'),
+            result: document.getElementById('screen-result')
+        };
+
+        function showScreen(screenName) {
+            Object.values(screens).forEach(s => s.classList.add('hidden'));
+            screens[screenName].classList.remove('hidden');
+        }
+
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            toast.textContent = msg;
+            toast.classList.remove('opacity-0');
+            setTimeout(() => toast.classList.add('opacity-0'), 3000);
+        }
+
+        function generateRoomCode() {
+            return Math.random().toString(36).substring(2, 8).toUpperCase();
+        }
+
+        // Authenticate anonymously automatically
+        signInAnonymously(auth).then((userCredential) => {
+            currentUser = userCredential.user;
+            if (firebaseConfig.apiKey === "YOUR_API_KEY_HERE") {
+                setTimeout(() => showToast("⚠️ Firebase Config ထည့်သွင်းရန် လိုအပ်ပါသည်!"), 1000);
+            }
+        }).catch((error) => {
+            showToast("Auth Error: " + error.message);
+        });
+
+        document.getElementById('btn-show-join').addEventListener('click', () => {
+            document.getElementById('join-section').classList.remove('hidden');
+        });
+
+        document.getElementById('btn-create-room').addEventListener('click', async () => {
+            const name = document.getElementById('player-name').value.trim();
+            if (!name) return showToast("သင့်နာမည် ရိုက်ထည့်ပါ!");
+            if (!currentUser) return showToast("Server နှင့် ချိတ်ဆက်နေပါသည်...");
+
+            isHost = true;
+            currentRoomCode = generateRoomCode();
+            
+            await setDoc(doc(db, "rooms", currentRoomCode), {
+                hostId: currentUser.uid,
+                status: 'setup', 
+                players: [{ id: currentUser.uid, name: name, isHost: true, clue: '', vote: null }],
+                words: [],
+                secretWord: '',
+                imposterHint: '',
+                imposterId: '',
+                createdAt: serverTimestamp()
+            });
+
+            listenToRoom();
+            initSetupScreen();
+        });
+
+        document.getElementById('btn-join-room').addEventListener('click', async () => {
+            const name = document.getElementById('player-name').value.trim();
+            const code = document.getElementById('room-code-input').value.trim().toUpperCase();
+            if (!name) return showToast("သင့်နာမည် ရိုက်ထည့်ပါ!");
+            if (code.length !== 6) return showToast("ကုဒ် ၆ လုံး အတိအကျဖြစ်ရပါမည်!");
+
+            const roomRef = doc(db, "rooms", code);
+            const roomSnap = await getDoc(roomRef);
+
+            if (!roomSnap.exists()) return showToast("အခန်း မတွေ့ရှိပါ!");
+            const data = roomSnap.data();
+            if (data.status !== 'setup' && data.status !== 'lobby') return showToast("ဂိမ်းစတင်နေပါပြီ!");
+            if (data.players.find(p => p.id === currentUser.uid)) return showToast("အခန်းထဲ ရောက်နေပါပြီ!");
+
+            currentRoomCode = code;
+            isHost = false;
+
+            const updatedPlayers = [...data.players, { id: currentUser.uid, name: name, isHost: false, clue: '', vote: null }];
+            await updateDoc(roomRef, { players: updatedPlayers });
+
+            listenToRoom();
+        });
+
+        function listenToRoom() {
+            unsubscribe = onSnapshot(doc(db, "rooms", currentRoomCode), (doc) => {
+                if (!doc.exists()) {
+                    showToast("အခန်း ပိတ်သွားပါပြီ။");
+                    resetGame();
+                    return;
+                }
+                roomData = doc.data();
+                updateUIBasedOnState();
+            });
+        }
+
+        function updateUIBasedOnState() {
+            if (roomData.status === 'setup') {
+                if (isHost) showScreen('setup');
+                else {
+                    showScreen('lobby');
+                    document.getElementById('display-room-code').textContent = currentRoomCode;
+                    renderLobbyPlayers();
+                }
+            } else if (roomData.status === 'lobby') {
+                showScreen('lobby');
+                document.getElementById('display-room-code').textContent = currentRoomCode;
+                if (isHost) {
+                    document.getElementById('host-controls').classList.remove('hidden');
+                    document.getElementById('guest-waiting').classList.add('hidden');
+                } else {
+                    document.getElementById('host-controls').classList.add('hidden');
+                    document.getElementById('guest-waiting').classList.remove('hidden');
+                }
+                renderLobbyPlayers();
+            } else if (roomData.status === 'playing') {
+                showScreen('game');
+                renderGameScreen();
+            } else if (roomData.status === 'voting') {
+                showScreen('vote');
+                renderVoteScreen();
+            } else if (roomData.status === 'result') {
+                showScreen('result');
+                renderResultScreen();
+            }
+        }
+
+        function initSetupScreen() {
+            showScreen('setup');
+            const container = document.getElementById('word-list-container');
+            container.innerHTML = '';
+            for (let i = 0; i < 10; i++) {
+                container.innerHTML += `
+                    <div class="flex gap-2">
+                        <input type="text" placeholder="Word ${i+1}" class="word-input w-1/2 bg-slate-800 border border-slate-600 rounded px-3 py-2 text-white text-sm">
+                        <input type="text" placeholder="Hint for Imposter" class="hint-input w-1/2 bg-slate-800 border border-slate-600 rounded px-3 py-2 text-white text-sm">
+                    </div>
+                `;
+            }
+
+            const inputs = document.querySelectorAll('.word-input, .hint-input');
+            inputs.forEach(input => {
+                input.addEventListener('input', () => {
+                    let validCount = 0;
+                    const wInputs = document.querySelectorAll('.word-input');
+                    const hInputs = document.querySelectorAll('.hint-input');
+                    for (let i = 0; i < 10; i++) {
+                        if (wInputs[i].value.trim() && hInputs[i].value.trim()) validCount++;
+                    }
+                    document.getElementById('word-count').textContent = validCount;
+                    document.getElementById('btn-save-words').disabled = (validCount !== 10);
+                });
+            });
+        }
+
+        document.getElementById('btn-save-words').addEventListener('click', async () => {
+            const wInputs = document.querySelectorAll('.word-input');
+            const hInputs = document.querySelectorAll('.hint-input');
+            let words = [];
+            for (let i = 0; i < 10; i++) {
+                words.push({ word: wInputs[i].value.trim(), hint: hInputs[i].value.trim() });
+            }
+            await updateDoc(doc(db, "rooms", currentRoomCode), {
+                words: words,
+                status: 'lobby'
+            });
+        });
+
+        function renderLobbyPlayers() {
+            const list = document.getElementById('player-list');
+            list.innerHTML = roomData.players.map(p => `<li class="bg-slate-800 p-2 rounded flex justify-between items-center text-sm border border-slate-700"><span>${p.name} ${p.isHost ? '👑' : ''}</span></li>`).join('');
+            document.getElementById('player-count').textContent = roomData.players.length;
+            
+            if (isHost) {
+                document.getElementById('btn-start-game').disabled = roomData.players.length < 3;
+            }
+        }
+
+        document.getElementById('btn-copy-code').addEventListener('click', () => {
+            navigator.clipboard.writeText(currentRoomCode);
+            showToast("Copied to clipboard!");
+        });
+
+        document.getElementById('btn-start-game').addEventListener('click', async () => {
+            const players = roomData.players;
+            const imposterIndex = Math.floor(Math.random() * players.length);
+            const imposterId = players[imposterIndex].id;
+            const randomWordPair = roomData.words[Math.floor(Math.random() * roomData.words.length)];
+
+            const updatedPlayers = players.map(p => ({...p, clue: '', vote: null}));
+
+            await updateDoc(doc(db, "rooms", currentRoomCode), {
+                status: 'playing',
+                imposterId: imposterId,
+                secretWord: randomWordPair.word,
+                imposterHint: randomWordPair.hint,
+                players: updatedPlayers
+            });
+        });
+
+        function renderGameScreen() {
+            const myPlayer = roomData.players.find(p => p.id === currentUser.uid);
+            const isImposter = (currentUser.uid === roomData.imposterId);
+            
+            document.getElementById('role-title').textContent = isImposter ? 'YOU ARE THE IMPOSTER' : 'YOU ARE A CIVILIAN';
+            document.getElementById('role-title').classList.toggle('text-red-400', isImposter);
+            document.getElementById('role-title').classList.toggle('text-blue-400', !isImposter);
+            document.getElementById('role-name').textContent = isImposter ? 'Imposter' : 'Civilian';
+            
+            document.getElementById('secret-label').textContent = isImposter ? 'Your Hint' : 'The Secret Word';
+            document.getElementById('secret-word').textContent = isImposter ? roomData.imposterHint : roomData.secretWord;
+            document.getElementById('secret-word').classList.toggle('text-red-400', isImposter);
+            document.getElementById('secret-word').classList.toggle('text-blue-400', !isImposter);
+
+            document.getElementById('role-card').onclick = function() {
+                document.getElementById('role-cover').classList.add('opacity-0', 'pointer-events-none');
+            };
+
+            if (myPlayer.clue) {
+                document.getElementById('clue-input-section').classList.add('hidden');
+            } else {
+                document.getElementById('clue-input-section').classList.remove('hidden');
+            }
+
+            const cluesList = document.getElementById('clues-list');
+            cluesList.innerHTML = roomData.players.map(p => `
+                <li class="bg-slate-800 p-3 rounded flex flex-col border-l-4 ${p.clue ? 'border-blue-500' : 'border-slate-600'}">
+                    <span class="text-xs text-slate-400">${p.name}</span>
+                    <span class="font-semibold text-sm">${p.clue ? p.clue : '<span class="text-slate-500 italic">Thinking...</span>'}</span>
+                </li>
+            `).join('');
+
+            if (isHost) document.getElementById('host-game-controls').classList.remove('hidden');
+        }
+
+        document.getElementById('btn-submit-clue').addEventListener('click', async () => {
+            const clue = document.getElementById('clue-input').value.trim();
+            if (!clue) return showToast("Clue ထည့်ပါ!");
+            
+            const updatedPlayers = roomData.players.map(p => 
+                p.id === currentUser.uid ? {...p, clue: clue} : p
+            );
+            await updateDoc(doc(db, "rooms", currentRoomCode), { players: updatedPlayers });
+        });
+
+        document.getElementById('btn-go-to-vote').addEventListener('click', async () => {
+            await updateDoc(doc(db, "rooms", currentRoomCode), { status: 'voting' });
+        });
+
+        function renderVoteScreen() {
+            const list = document.getElementById('vote-list');
+            const myPlayer = roomData.players.find(p => p.id === currentUser.uid);
+            
+            list.innerHTML = roomData.players.map(p => {
+                const votesCount = roomData.players.filter(voter => voter.vote === p.id).length;
+                const isMe = p.id === currentUser.uid;
+                const isSelected = myPlayer.vote === p.id;
+                
+                return `
+                <li class="bg-slate-800 p-3 rounded flex justify-between items-center border ${isSelected ? 'border-red-500' : 'border-slate-700'}">
+                    <span class="text-sm font-semibold">${p.name} ${isMe ? '(You)' : ''}</span>
+                    <div class="flex items-center gap-3">
+                        <span class="text-xs bg-slate-700 px-2 py-1 rounded-full">${votesCount} votes</span>
+                        ${!isMe && !myPlayer.vote ? `<button onclick="window.castVote('${p.id}')" class="bg-red-600 hover:bg-red-500 px-3 py-1 rounded text-xs text-white uppercase font-bold tracking-wider transition-colors">Vote</button>` : ''}
+                    </div>
+                </li>`;
+            }).join('');
+
+            const totalVotes = roomData.players.filter(p => p.vote).length;
+            document.getElementById('vote-status').textContent = `${totalVotes} / ${roomData.players.length} players voted`;
+
+            if (isHost) document.getElementById('host-vote-controls').classList.remove('hidden');
+        }
+
+        window.castVote = async (targetId) => {
+            const updatedPlayers = roomData.players.map(p => p.id === currentUser.uid ? {...p, vote: targetId} : p);
+            await updateDoc(doc(db, "rooms", currentRoomCode), { players: updatedPlayers });
+        };
+
+        document.getElementById('btn-reveal-results').addEventListener('click', async () => {
+            await updateDoc(doc(db, "rooms", currentRoomCode), { status: 'result' });
+        });
+
+        function renderResultScreen() {
+            const imposter = roomData.players.find(p => p.id === roomData.imposterId);
+            document.getElementById('result-imposter-name').textContent = imposter.name;
+            document.getElementById('result-secret-word').textContent = roomData.secretWord;
+
+            let maxVotes = 0;
+            let votedOutId = null;
+            const voteCounts = {};
+            
+            roomData.players.forEach(p => {
+                if(p.vote) {
+                    voteCounts[p.vote] = (voteCounts[p.vote] || 0) + 1;
+                    if(voteCounts[p.vote] > maxVotes) {
+                        maxVotes = voteCounts[p.vote];
+                        votedOutId = p.vote;
+                    }
+                }
+            });
+
+            const title = document.getElementById('result-title');
+            const desc = document.getElementById('result-desc');
+
+            if (votedOutId === roomData.imposterId) {
+                title.textContent = "Civilians Win!";
+                title.className = "text-3xl font-extrabold mb-2 text-blue-400";
+                desc.textContent = "Imposter ကို အောင်မြင်စွာ ဖော်ထုတ်နိုင်ခဲ့ပါတယ်။";
+            } else {
+                title.textContent = "Imposter Wins!";
+                title.className = "text-3xl font-extrabold mb-2 text-red-500";
+                if (votedOutId) {
+                    const wrongPlayer = roomData.players.find(p => p.id === votedOutId);
+                    desc.textContent = `လူမှားပြီး ${wrongPlayer.name} ကို မဲပေးမိသွားပါတယ်။`;
+                } else {
+                    desc.textContent = "Imposter ကို မဲမပေးနိုင်ခဲ့ပါ။";
+                }
+            }
+        }
+
+        document.getElementById('btn-back-lobby').addEventListener('click', async () => {
+            if(isHost) {
+                await updateDoc(doc(db, "rooms", currentRoomCode), { status: 'setup' });
+            }
+        });
+
+        function resetGame() {
+            if(unsubscribe) unsubscribe();
+            currentRoomCode = null;
+            isHost = false;
+            roomData = null;
+            showScreen('home');
+        }
+
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js').catch(err => {
+                    console.log('SW registration failed: ', err);
+                });
+            });
+        }
+    </script>
+</body>
+</html>
