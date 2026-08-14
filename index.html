@@ -101,16 +101,17 @@
 
         <div id="screen-setup" class="hidden flex flex-col gap-4">
             <h2 class="text-xl font-semibold border-b border-slate-700 pb-2">Custom Word List Setup</h2>
-            <p class="text-sm text-slate-400">Enter exactly 10 words and hints for the Imposter. <br><span class="text-xs text-yellow-400">Civilians see the Word. Imposter sees the Hint.</span></p>
+            <p class="text-sm text-slate-400">Enter words and hints for the Imposter. (Min: 2, Max: 5) <br><span class="text-xs text-yellow-400">Civilians see the Word. Imposter sees the Hint.</span></p>
             
             <div id="word-list-container" class="max-h-64 overflow-y-auto pr-2 space-y-3">
                 <!-- Word inputs injected here by JS -->
             </div>
 
             <div class="mt-4 flex justify-between items-center">
-                <span class="text-sm text-slate-400">Count: <span id="word-count" class="font-bold text-white">0</span>/10</span>
-                <button id="btn-save-words" class="btn-primary text-white font-semibold py-2 px-6 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed" disabled>Save & Continue</button>
+                <span class="text-sm text-slate-400">Count: <span id="word-count" class="font-bold text-white">0</span>/5</span>
+                <button id="btn-save-words" class="btn-primary text-white font-semibold py-2 px-6 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed" disabled>Ready</button>
             </div>
+            <p id="setup-waiting-msg" class="text-center text-sm text-yellow-400 hidden mt-2">Waiting for others...</p>
         </div>
 
         <div id="screen-lobby" class="hidden flex flex-col gap-4">
@@ -133,7 +134,7 @@
 
             <div id="host-controls" class="hidden mt-4 pt-4 border-t border-slate-700">
                 <button id="btn-start-game" class="w-full btn-primary text-white font-semibold py-3 px-4 rounded-lg shadow-lg">Start Game</button>
-                <p class="text-center text-xs text-slate-500 mt-2">Requires minimum 3 players.</p>
+                <p class="text-center text-xs text-slate-500 mt-2">Requires minimum 3 players and all must be ready.</p>
             </div>
             <div id="guest-waiting" class="mt-4 pt-4 border-t border-slate-700 text-center">
                 <p class="text-sm text-slate-400 animate-pulse">Waiting for host to start...</p>
@@ -142,6 +143,10 @@
 
         <div id="screen-game" class="hidden flex flex-col gap-4">
             
+            <div class="text-center mb-2">
+                <h2 class="text-xl font-bold text-blue-400" id="round-indicator">Round 1 / 2</h2>
+            </div>
+
             <!-- Role Card -->
             <div id="role-card" class="glass-panel p-6 rounded-xl border border-slate-600 text-center cursor-pointer relative overflow-hidden group">
                 <div class="absolute inset-0 bg-slate-800 flex items-center justify-center transition-opacity duration-300 z-10" id="role-cover">
@@ -164,6 +169,7 @@
                     <input type="text" id="clue-input" placeholder="Your clue..." class="w-full bg-slate-800 text-white border border-slate-600 rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500 mb-2">
                     <button id="btn-submit-clue" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-2 px-4 rounded-lg transition-colors">Submit Clue</button>
                 </div>
+                <p id="clue-waiting-msg" class="text-center text-sm text-yellow-400 hidden mt-2">Waiting for others to submit clues...</p>
             </div>
 
             <!-- Clues Board -->
@@ -176,6 +182,7 @@
 
             <!-- Host transition to vote -->
             <div id="host-game-controls" class="hidden mt-2">
+                <button id="btn-next-round" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-2 px-4 rounded-lg transition-colors shadow-lg mb-2">Next Round</button>
                 <button id="btn-go-to-vote" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2 px-4 rounded-lg transition-colors shadow-lg">Proceed to Voting</button>
             </div>
         </div>
@@ -252,6 +259,9 @@
         let isHost = false;
         let roomData = null;
         let unsubscribe = null;
+        const MAX_WORDS_PER_PLAYER = 5;
+        const MIN_WORDS_PER_PLAYER = 2;
+        const TOTAL_ROUNDS = 2;
 
         const screens = {
             home: document.getElementById('screen-home'),
@@ -303,11 +313,13 @@
             await setDoc(doc(db, "rooms", currentRoomCode), {
                 hostId: currentUser.uid,
                 status: 'setup', 
-                players: [{ id: currentUser.uid, name: name, isHost: true, clue: '', vote: null }],
-                words: [],
+                players: [{ id: currentUser.uid, name: name, isHost: true, clues: [], vote: null, isReady: false }],
+                allWords: [], // Store all words from all players
                 secretWord: '',
                 imposterHint: '',
                 imposterId: '',
+                wordOwnerId: '', // Track who submitted the chosen word
+                currentRound: 1,
                 createdAt: serverTimestamp()
             });
 
@@ -332,10 +344,11 @@
             currentRoomCode = code;
             isHost = false;
 
-            const updatedPlayers = [...data.players, { id: currentUser.uid, name: name, isHost: false, clue: '', vote: null }];
+            const updatedPlayers = [...data.players, { id: currentUser.uid, name: name, isHost: false, clues: [], vote: null, isReady: false }];
             await updateDoc(roomRef, { players: updatedPlayers });
 
             listenToRoom();
+            initSetupScreen(); // Everyone goes to setup screen to enter words
         });
 
         function listenToRoom() {
@@ -352,12 +365,21 @@
 
         function updateUIBasedOnState() {
             if (roomData.status === 'setup') {
-                if (isHost) showScreen('setup');
-                else {
-                    showScreen('lobby');
-                    document.getElementById('display-room-code').textContent = currentRoomCode;
-                    renderLobbyPlayers();
+                showScreen('setup');
+                const myPlayer = roomData.players.find(p => p.id === currentUser.uid);
+                if (myPlayer && myPlayer.isReady) {
+                    document.getElementById('btn-save-words').classList.add('hidden');
+                    document.getElementById('setup-waiting-msg').classList.remove('hidden');
+                    
+                    // Check if everyone is ready to move to lobby
+                    if (isHost && roomData.players.every(p => p.isReady)) {
+                        moveToLobby();
+                    }
+                } else {
+                     document.getElementById('btn-save-words').classList.remove('hidden');
+                     document.getElementById('setup-waiting-msg').classList.add('hidden');
                 }
+
             } else if (roomData.status === 'lobby') {
                 showScreen('lobby');
                 document.getElementById('display-room-code').textContent = currentRoomCode;
@@ -381,11 +403,16 @@
             }
         }
 
+        async function moveToLobby() {
+            await updateDoc(doc(db, "rooms", currentRoomCode), {
+                status: 'lobby'
+            });
+        }
+
         function initSetupScreen() {
-            showScreen('setup');
             const container = document.getElementById('word-list-container');
             container.innerHTML = '';
-            for (let i = 0; i < 10; i++) {
+            for (let i = 0; i < MAX_WORDS_PER_PLAYER; i++) {
                 container.innerHTML += `
                     <div class="flex gap-2">
                         <input type="text" placeholder="Word ${i+1}" class="word-input w-1/2 bg-slate-800 border border-slate-600 rounded px-3 py-2 text-white text-sm">
@@ -400,11 +427,11 @@
                     let validCount = 0;
                     const wInputs = document.querySelectorAll('.word-input');
                     const hInputs = document.querySelectorAll('.hint-input');
-                    for (let i = 0; i < 10; i++) {
+                    for (let i = 0; i < MAX_WORDS_PER_PLAYER; i++) {
                         if (wInputs[i].value.trim() && hInputs[i].value.trim()) validCount++;
                     }
                     document.getElementById('word-count').textContent = validCount;
-                    document.getElementById('btn-save-words').disabled = (validCount !== 10);
+                    document.getElementById('btn-save-words').disabled = (validCount < MIN_WORDS_PER_PLAYER);
                 });
             });
         }
@@ -412,23 +439,42 @@
         document.getElementById('btn-save-words').addEventListener('click', async () => {
             const wInputs = document.querySelectorAll('.word-input');
             const hInputs = document.querySelectorAll('.hint-input');
-            let words = [];
-            for (let i = 0; i < 10; i++) {
-                words.push({ word: wInputs[i].value.trim(), hint: hInputs[i].value.trim() });
+            let myWords = [];
+            for (let i = 0; i < MAX_WORDS_PER_PLAYER; i++) {
+                if (wInputs[i].value.trim() && hInputs[i].value.trim()) {
+                     myWords.push({ 
+                         word: wInputs[i].value.trim(), 
+                         hint: hInputs[i].value.trim(),
+                         ownerId: currentUser.uid 
+                     });
+                }
             }
-            await updateDoc(doc(db, "rooms", currentRoomCode), {
-                words: words,
-                status: 'lobby'
-            });
+
+            // Update room with my words and set my status to ready
+            const roomRef = doc(db, "rooms", currentRoomCode);
+            const roomSnap = await getDoc(roomRef);
+            if(roomSnap.exists()) {
+                const currentData = roomSnap.data();
+                const updatedAllWords = [...currentData.allWords, ...myWords];
+                const updatedPlayers = currentData.players.map(p => 
+                    p.id === currentUser.uid ? {...p, isReady: true} : p
+                );
+
+                await updateDoc(roomRef, {
+                    allWords: updatedAllWords,
+                    players: updatedPlayers
+                });
+            }
         });
 
         function renderLobbyPlayers() {
             const list = document.getElementById('player-list');
-            list.innerHTML = roomData.players.map(p => `<li class="bg-slate-800 p-2 rounded flex justify-between items-center text-sm border border-slate-700"><span>${p.name} ${p.isHost ? '👑' : ''}</span></li>`).join('');
+            list.innerHTML = roomData.players.map(p => `<li class="bg-slate-800 p-2 rounded flex justify-between items-center text-sm border border-slate-700"><span>${p.name} ${p.isHost ? '👑' : ''}</span><span class="text-xs ${p.isReady ? 'text-green-400' : 'text-slate-500'}">${p.isReady ? 'Ready' : 'Not Ready'}</span></li>`).join('');
             document.getElementById('player-count').textContent = roomData.players.length;
             
             if (isHost) {
-                document.getElementById('btn-start-game').disabled = roomData.players.length < 3;
+                const allReady = roomData.players.every(p => p.isReady);
+                document.getElementById('btn-start-game').disabled = roomData.players.length < 3 || !allReady;
             }
         }
 
@@ -439,17 +485,29 @@
 
         document.getElementById('btn-start-game').addEventListener('click', async () => {
             const players = roomData.players;
-            const imposterIndex = Math.floor(Math.random() * players.length);
-            const imposterId = players[imposterIndex].id;
-            const randomWordPair = roomData.words[Math.floor(Math.random() * roomData.words.length)];
+            
+            // 1. Pick a random word from the pooled words
+            if(roomData.allWords.length === 0) return showToast("No words available!");
+            const randomWordIndex = Math.floor(Math.random() * roomData.allWords.length);
+            const selectedWordPair = roomData.allWords[randomWordIndex];
+            const wordOwnerId = selectedWordPair.ownerId;
 
-            const updatedPlayers = players.map(p => ({...p, clue: '', vote: null}));
+            // 2. Select Imposter (excluding the word owner)
+            const eligibleImposters = players.filter(p => p.id !== wordOwnerId);
+            if(eligibleImposters.length === 0) return showToast("Not enough eligible players to be imposter!"); // Should rarely happen if n>=3
+            
+            const imposterIndex = Math.floor(Math.random() * eligibleImposters.length);
+            const imposterId = eligibleImposters[imposterIndex].id;
+
+            const updatedPlayers = players.map(p => ({...p, clues: [], vote: null}));
 
             await updateDoc(doc(db, "rooms", currentRoomCode), {
                 status: 'playing',
                 imposterId: imposterId,
-                secretWord: randomWordPair.word,
-                imposterHint: randomWordPair.hint,
+                secretWord: selectedWordPair.word,
+                imposterHint: selectedWordPair.hint,
+                wordOwnerId: wordOwnerId,
+                currentRound: 1,
                 players: updatedPlayers
             });
         });
@@ -457,6 +515,9 @@
         function renderGameScreen() {
             const myPlayer = roomData.players.find(p => p.id === currentUser.uid);
             const isImposter = (currentUser.uid === roomData.imposterId);
+            const currentRound = roomData.currentRound || 1;
+
+            document.getElementById('round-indicator').textContent = `Round ${currentRound} / ${TOTAL_ROUNDS}`;
             
             document.getElementById('role-title').textContent = isImposter ? 'YOU ARE THE IMPOSTER' : 'YOU ARE A CIVILIAN';
             document.getElementById('role-title').classList.toggle('text-red-400', isImposter);
@@ -472,29 +533,63 @@
                 document.getElementById('role-cover').classList.add('opacity-0', 'pointer-events-none');
             };
 
-            if (myPlayer.clue) {
+            // Check if user has submitted clue for current round
+            const hasSubmittedCurrentRoundClue = myPlayer.clues.length >= currentRound;
+
+            if (hasSubmittedCurrentRoundClue) {
                 document.getElementById('clue-input-section').classList.add('hidden');
+                document.getElementById('clue-waiting-msg').classList.remove('hidden');
             } else {
                 document.getElementById('clue-input-section').classList.remove('hidden');
+                document.getElementById('clue-waiting-msg').classList.add('hidden');
+                document.getElementById('clue-input').value = ''; // Reset input
             }
 
             const cluesList = document.getElementById('clues-list');
-            cluesList.innerHTML = roomData.players.map(p => `
-                <li class="bg-slate-800 p-3 rounded flex flex-col border-l-4 ${p.clue ? 'border-blue-500' : 'border-slate-600'}">
+            cluesList.innerHTML = roomData.players.map(p => {
+                const pClues = p.clues.join(', ');
+                const hasProvidedClue = p.clues.length >= currentRound;
+                return `
+                <li class="bg-slate-800 p-3 rounded flex flex-col border-l-4 ${hasProvidedClue ? 'border-blue-500' : 'border-slate-600'}">
                     <span class="text-xs text-slate-400">${p.name}</span>
-                    <span class="font-semibold text-sm">${p.clue ? p.clue : '<span class="text-slate-500 italic">Thinking...</span>'}</span>
+                    <span class="font-semibold text-sm">${pClues ? pClues : '<span class="text-slate-500 italic">Thinking...</span>'}</span>
                 </li>
-            `).join('');
+            `}).join('');
 
-            if (isHost) document.getElementById('host-game-controls').classList.remove('hidden');
+            if (isHost) {
+                 document.getElementById('host-game-controls').classList.remove('hidden');
+                 const allCluesSubmittedForRound = roomData.players.every(p => p.clues.length >= currentRound);
+                 
+                 // Show 'Next Round' if we are on round 1 and everyone submitted
+                 if(currentRound < TOTAL_ROUNDS && allCluesSubmittedForRound) {
+                     document.getElementById('btn-next-round').classList.remove('hidden');
+                 } else {
+                     document.getElementById('btn-next-round').classList.add('hidden');
+                 }
+
+                 // Enable 'Go to Vote' if it's the last round or manually requested
+                 document.getElementById('btn-go-to-vote').disabled = currentRound === TOTAL_ROUNDS ? !allCluesSubmittedForRound : false;
+            }
         }
+
+        document.getElementById('btn-next-round').addEventListener('click', async () => {
+             const nextRound = (roomData.currentRound || 1) + 1;
+             await updateDoc(doc(db, "rooms", currentRoomCode), { currentRound: nextRound });
+        });
 
         document.getElementById('btn-submit-clue').addEventListener('click', async () => {
             const clue = document.getElementById('clue-input').value.trim();
             if (!clue) return showToast("Clue ထည့်ပါ!");
             
+            const currentRound = roomData.currentRound || 1;
+            const myPlayer = roomData.players.find(p => p.id === currentUser.uid);
+            
+            if (myPlayer.clues.length >= currentRound) return; // Already submitted for this round
+
+            const updatedClues = [...myPlayer.clues, clue];
+
             const updatedPlayers = roomData.players.map(p => 
-                p.id === currentUser.uid ? {...p, clue: clue} : p
+                p.id === currentUser.uid ? {...p, clues: updatedClues} : p
             );
             await updateDoc(doc(db, "rooms", currentRoomCode), { players: updatedPlayers });
         });
@@ -577,7 +672,14 @@
 
         document.getElementById('btn-back-lobby').addEventListener('click', async () => {
             if(isHost) {
-                await updateDoc(doc(db, "rooms", currentRoomCode), { status: 'setup' });
+                // Reset game state for next round but keep players in lobby
+                 const resetPlayers = roomData.players.map(p => ({...p, isReady: false, clues: [], vote: null}));
+                 await updateDoc(doc(db, "rooms", currentRoomCode), { 
+                     status: 'setup', // Go back to setup to pick words again or use same pool? Let's go to setup so they can change.
+                     players: resetPlayers,
+                     allWords: [], // Clear word pool for a fresh start
+                     currentRound: 1
+                 });
             }
         });
 
