@@ -364,33 +364,29 @@
         }
 
         function updateUIBasedOnState() {
-            if (roomData.status === 'setup') {
-                showScreen('setup');
-                const myPlayer = roomData.players.find(p => p.id === currentUser.uid);
-                if (myPlayer && myPlayer.isReady) {
-                    document.getElementById('btn-save-words').classList.add('hidden');
-                    document.getElementById('setup-waiting-msg').classList.remove('hidden');
-                    
-                    // Check if everyone is ready to move to lobby
-                    if (isHost && roomData.players.every(p => p.isReady)) {
-                        moveToLobby();
-                    }
-                } else {
-                     document.getElementById('btn-save-words').classList.remove('hidden');
-                     document.getElementById('setup-waiting-msg').classList.add('hidden');
-                }
+            if (!roomData) return;
+            const myPlayer = roomData.players.find(p => p.id === currentUser.uid);
 
-            } else if (roomData.status === 'lobby') {
-                showScreen('lobby');
-                document.getElementById('display-room-code').textContent = currentRoomCode;
-                if (isHost) {
-                    document.getElementById('host-controls').classList.remove('hidden');
-                    document.getElementById('guest-waiting').classList.add('hidden');
+            // ဂိမ်းမစခင် အခြေအနေ (Setup သို့မဟုတ် Lobby) တွင် ကစားသမား အခြေအနေပေါ် မူတည်ပြီး ပြသမည့် မျက်နှာပြင်ခွဲခြားခြင်း
+            if (roomData.status === 'setup' || roomData.status === 'lobby') {
+                if (myPlayer && !myPlayer.isReady) {
+                    // စကားလုံး မထည့်ရသေးလျှင် (Ready မဖြစ်သေးလျှင်) Setup မျက်နှာပြင်ကိုသာ ပြမည်
+                    showScreen('setup');
+                    document.getElementById('btn-save-words')?.classList.remove('hidden');
+                    document.getElementById('setup-waiting-msg')?.classList.add('hidden');
                 } else {
-                    document.getElementById('host-controls').classList.add('hidden');
-                    document.getElementById('guest-waiting').classList.remove('hidden');
+                    // စကားလုံး ထည့်ပြီးသွားလျှင် Lobby မျက်နှာပြင်သို့ ပို့မည်
+                    showScreen('lobby');
+                    document.getElementById('display-room-code').textContent = currentRoomCode;
+                    if (isHost) {
+                        document.getElementById('host-controls').classList.remove('hidden');
+                        document.getElementById('guest-waiting').classList.add('hidden');
+                    } else {
+                        document.getElementById('host-controls').classList.add('hidden');
+                        document.getElementById('guest-waiting').classList.remove('hidden');
+                    }
+                    renderLobbyPlayers();
                 }
-                renderLobbyPlayers();
             } else if (roomData.status === 'playing') {
                 showScreen('game');
                 renderGameScreen();
@@ -401,12 +397,6 @@
                 showScreen('result');
                 renderResultScreen();
             }
-        }
-
-        async function moveToLobby() {
-            await updateDoc(doc(db, "rooms", currentRoomCode), {
-                status: 'lobby'
-            });
         }
 
         function initSetupScreen() {
